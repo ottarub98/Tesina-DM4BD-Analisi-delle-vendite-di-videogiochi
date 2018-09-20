@@ -1,0 +1,501 @@
+---
+title: "Analisi delle vendite di videogiochi"
+output:
+  html_document:
+    author: Luca Buratto 
+    theme: readable
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+  
+  ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+1. Introduzione 
+==================================================================================================================
+Il dataset utilizzato "vgsales" è stato preso dal sito [kaggle.com](https://www.kaggle.com/gregorut/videogamesales) e rappresenta le vendite di videogiochi nel mondo, aggiornate al 26/10/2016.
+
+- Obiettivi dell'analisi: l'analisi mira ad esplorare quanto più possibile il database presentandolo nella forma semplificata di grafici e qualche tabella così che possa essere, almeno parzialmente, conosciuto anche da un pubblico di non addetti ai lavori.
+
+
+1.1 Dimensione del database 
+------------------------------------------------------------------------------------------------------------------
+Carichiamo il database, vediamone le dimensioni e la forma
+
+```{r}
+# setto la working directory
+setwd("~/Università/Specialistica/DM4BD (tesina)/vgsales")
+```
+
+```{r}
+# Carico il dataset vgsales 
+vgsales <- read.csv(file="Dataset/vgsales.csv", header= T, sep =",")
+dim(vgsales)
+head(vgsales)
+```
+
+
+ 1.2 Significato delle variabili
+------------------------------------------------------------------------------------------------------------------
+Vediamo  che cosa rappresentano le variabili 
+
+```{r}
+names(vgsales)
+```
+Nell'ordine con cui si presentano abbiamo:
+
+- *Rank*: Ordine di vendita di ogni gioco nel mondo
+- *Name*: Nome del gioco
+- *Platform*: Piattaforma/consolle su cui il gioco è in esecuzione
+- *Year_of_Release*: Anno di rilascio del gioco
+- *Genre*: Genere del gioco (azione, strategia,...)
+- *Publisher*: Società che ha rilasciato il gioco
+- *NA_Sales*: Vendite del gioco in Nord-America (mln di €)
+- *EU_Sales*: Vendite del gioco in Europa (mln di €)
+- *JP_Sales*: Vendite del gioco in Giappone (mln di €)
+- *Other_Sales*: Vendite del gioco nel resto del mondo (mln di €)
+- *Global_Sales*: Vendite complessive nel mondo (mln di €)
+
+Siccome ogni colonna è una variabile, ogni colonna è una variabile e contiene dei valori singoli e inoltre ogni osservazione forma una riga, affermiamo che stiamo operando su  dei $\textbf{Tidy data}$, perciò non serviranno operazioni di tidyng. Andremo solamente a controllare eventuali valori mancanti $\textit{NA}$ (not available) e valori impossibili da un punto di vista logico.
+
+1.3 Librerie utilizzate (scremarle)
+------------------------------------------------------------------------------------------------------------------
+Carico  le library
+```{r}
+library(plotly)
+library(gridExtra)
+library(PerformanceAnalytics)
+library(corrplot)
+library(plotly)
+library(sqldf)
+library(ggplotify)
+library(ggthemes)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(DT) 
+```
+
+
+
+2 Qual'è la piattaforma di videogiochi di maggior successo per ciascun anno?
+====================================================================================================================
+
+Per rispondere alla domanda utilizziamo anche [plot.ly](https://plot.ly/ggplot2/geom_density/):
+ 
+```{r}
+q<-vgsales %>%
+  group_by(Year,Platform) %>%
+  summarize(total = sum(Global_Sales)) %>%
+  ggplot(aes(x = Year, y = total, fill = Platform))+
+  geom_col(position="stack")+
+  labs(y = "Vendite in mln €", x= "Anno") +
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplotly(q, width = 800, height = 600)
+```
+
+Notiamo che l'$\textbf{Anno}$ assume i valori $\textit{2017,2020}$ che sono logicamente impossibili in quanto le osservazioni sulle vendite sono datate fine 2016, e $\textit{N/A}$ ossia un valore non disponibile. Vediamoli più nel dettaglio:
+
+```{r}
+table(vgsales$Year)
+```
+
+Nella variabile di tipo factor troviamo:  sono 271 $ \rightarrow \textit{N/A}$, 3 $\rightarrow \textit{2017}$ e  solo 1 $\rightarrow \textit{2020}$. Optiamo per eliminare le tuple contenenti tali valori che sono in tutto $\frac{271+3+1}{16598}$ corrispondenti all'$1.65\%$ del totale.
+
+```{r}
+#  eliminiamo livelli
+vgsales<-vgsales[(vgsales$Year != "N/A") &  (vgsales$Year != "2017")  &  (vgsales$Year != "2020"),]
+vgsales$Year<-factor(vgsales$Year) 
+levels(vgsales$Year) 
+
+```
+
+Riplottando il grafico otteniamo:
+
+
+```{r} 
+#migliore piattaforma per ciascun anno
+miglior_piattaforma <-vgsales %>%  
+  group_by(Platform,Year) %>% 
+  summarise(Ricavi = sum(Global_Sales)) %>%
+  ggplot(aes(Year, Ricavi, fill=Platform ))+ geom_bar(stat="identity") +
+  labs( x = "anno", y = "Vendite (mln €)", title="Piattaforme per anno")+
+  theme(axis.text.x = element_text(angle = 90))
+ggplotly(miglior_piattaforma, width = 800, height = 600)
+
+```
+In questo grafico a parte osservare che il mercato era in netta crescita fino al 2008, risulta difficile effettuare un confronto fra piattaforme perciò cambiamo tipo di grafico:
+
+```{r}
+# migliore piattaforma per ciascun anno (alternativa)
+miglior_piattaforma1 <-vgsales %>%  
+  group_by(Year, Platform) %>%
+  summarise(totale=sum(Global_Sales))%>%
+  top_n(n=1)%>%
+  ggplot(aes(Year, totale, fill=Platform ))+
+  geom_point(shape = 19, size = 4, stroke = 0.2) +
+  labs( x = "anno", y = "Vendite (mln €)", title="La piattaforma di maggior successo per anno")+
+  theme(axis.text.x = element_text(angle = 90))
+ggplotly(miglior_piattaforma1, width = 800, height = 600)
+```
+
+In sintesi:
+
+| 2600 | GB | NES | PS | PS2 | PS3 | PS4 | SNES | Wii | X360 |
+|------|----|-----|----|-----|-----|-----|------|-----|------|
+| 3    | 1  | 6   | 6  | 5   | 3   | 5   | 5    | 4   | 1    |
+
+La piattaforma che ha avuto più successo, nel senso di essere stata prima nei vari anni, è anzi sono a pari merito $\textit{NES}$ e $\textit{PS}$.
+
+3 Qual'è il genere di videogiochi che ha incassato di più nel mondo?
+====================================================================================================================
+
+Cerchiamo dunque il genere di videogiochi più venduto nel mondo:
+
+```{r}
+#genere di maggior successo (mondo) 
+top_genre<-vgsales%>%
+  group_by(Genre)%>%
+  summarise(sum = sum(Global_Sales)) %>%
+  ggplot(aes(Genre, sum, fill=Genre))+ geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90)) + 
+  labs(x = "Genere", y = "Vendite (mln €)", title="Genere di maggior successo al mondo")  + 
+  theme(legend.position="none") # legenda ridondante 
+ggplotly(top_genre, width = 800, height = 600) 
+
+```
+
+Dal 1980 ad 2017 il genere di videogiochi che ha più successo è senza dubbio quello dell'Azione.
+
+3.1 E quello che ha incassato di più per zona geografica?
+--------------------------------------------------------------------------------------------------------------------
+
+Vediamo ora il genere di videogiochi più venduto fra le 4 zone geografiche che partizionano il mondo:
+
+```{r}
+# zone geografiche
+top_genre1<- vgsales %>%
+    gather("Zona", "Ricavi", c("NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales")) %>%
+    group_by(Zona,Genre) %>%
+    summarise(Vendite = sum(Ricavi)) %>%
+    ggplot(aes(x = Zona, y = Vendite, group = Zona, fill = Genre)) +
+    geom_col(position = "stack") + ggtitle("I generi più venduti per zona geografica") 
+top_genre1
+```
+
+Rendiamo più leggibile il grafico andando a selezione i 5 generi più venduti per ogni zona geografica, usando la funzione di dplyr $\textit{top_n(n= 5)}$:
+
+```{r}
+#5 generi più venduti per zona geografica
+top_genre2<- vgsales %>%
+  gather("Zona", "Ricavi", c("NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales")) %>%
+  group_by(Zona, Genre) %>%
+  summarise(Vendite = sum(Ricavi)) %>%
+  top_n(n= 5) %>%
+  ggplot(aes(x = Zona, y = Vendite, group = Zona, fill = Genre)) +
+  geom_col() + ggtitle("I primi 5 generi più venduti per zona geografica") 
+
+top_genre2
+```
+
+Dunque abbiamo:
+
+```{r}
+# tabella del grafico
+vgsales %>%
+  gather("Zona", "Ricavi", c("NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales")) %>%
+  group_by(Zona, Genre) %>%
+  summarise(Vendite = sum(Ricavi)) %>%
+  top_n(n= 5)%>%
+  top_n(n=1)%>%
+  datatable()
+```
+
+Nei 4 luoghi del mondo per ben 3 volte il genere Azione è campione di incassi. Visto il risultato precedente, è abbastanza naturale questo risultato.
+
+3.2 E quello che ha incassato di più ad ogni anno?
+--------------------------------------------------------------------------------------------------------------------
+
+Costruiamo un istogramma:
+
+```{r}
+best_genere_anno <- vgsales %>% 
+         group_by(Year, Genre) %>% 
+         summarise(vendite = sum(Global_Sales)) %>%
+         top_n(1)
+
+grafico<-ggplot(best_genere_anno, aes(Year, vendite, fill = Genre)) + 
+  geom_bar(stat = "identity") +
+  labs( x = "Anno", y = "Vendite (mln €)", title="Genere più venduto per anno")+
+  theme(axis.text.x = element_text(angle = 90)) 
+
+ggplotly(grafico, width = 800, height = 600)
+```
+
+Quasi ininterrottamente  negli ultimi 16 anni il genere Azione è stato il primo posto nelle vendite. È seguito dal genere Platform e dal genere Racing (per numero di primi posti).
+
+3.3 Fino a quali anni c'è stato 'equilibrio' nelle vendite?
+------------------------------------------------------------------------------------------------------------------------
+
+Cominciamo costruendo un istogramma:
+
+```{r}
+d<-vgsales%>%
+  group_by(Year, Genre)%>%
+  summarise(sum = sum(Global_Sales))%>%
+  ggplot(mapping = aes(x = Year, y = sum))+
+  geom_bar(stat="identity") +
+  (aes(x=Year, y=sum, col = Genre)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs( x = "anno", y = "Vendite (mln €)")
+ggplotly(d, width = 800, height = 600)
+```
+
+  Non è molto efficace. Plottiamo allora la serie storica degli istogrammi per ciascun genere di videogioco:
+
+```{r}
+# serie storica istogrammi Genere
+d<-vgsales%>%
+  ggplot(mapping=aes(x = Genre, y = Global_Sales, fill = Genre))+
+  geom_col(position="stack")+
+  facet_wrap(~Year)+
+  labs(title="Serie storica per ciascun genere di videogioco",  y = "Vendite", fill = "Genere")+
+  theme(legend.position = "bottom")+
+  theme(axis.text.x  = element_blank(),
+        axis.ticks = element_blank())
+ggplotly(d, width = 800, height = 600)
+```
+
+Poiché questi istogrammi solo utili solo qualora le vendite di un certo genere superino di gran lunga le altre (es. nel 1985 e 1988), optiamo per:
+
+```{r}
+# Year è interger
+vgsales$Year=as.numeric(as.character(vgsales$Year))
+
+vgsales%>%
+  group_by(Year,Genre)%>%
+  summarise(ricavi=sum(Global_Sales))%>%
+  plot_ly(x=~Year,
+          y=~ricavi,
+          frame=~Genre,
+          #text = ~Publisher,
+          fill = 'tozeroy',
+          color=~ Genre) %>%
+  animation_opts(800, redraw = FALSE)%>%
+  animation_button(x = 1, xanchor = "right", y = 0, yanchor = "bottom") %>%
+  animation_slider(
+    currentvalue = list(prefix = "YEAR ", font = list(color="red")))
+
+# reimpostiamo Year come factor
+vgsales$Year=as.factor(vgsales$Year)
+```
+
+Attraverso questo grafico interattivo, possiamo confrontare anno per anno i ricavi per ciascun genere di videogiochi. Possiamo rispondere che in via approssimativa fino a al 1995 circa solamente una volta o due i ricavi dei vari genere hanno sfondato il tetto dei 20 mln. Poi il divario fra i generi è aumentato, con l'eccezione del 2016.
+
+
+4 In quale zona del mondo e quando si è verificato  il picco degli incassi?
+==============================================================================================================================
+
+Per mostrarlo utilizzo il comando [sqldf](https://www.r-bloggers.com/running-sql-queries-in-r-with-the-sqldf-package/) che permette di scrivere in linguaggio SQL, 
+e il solito [plot.ly](https://plot.ly/r/filled-area-plots/):
+
+```{r}
+glob_piatt<- sqldf("SELECT Year, 
+sum(NA_Sales) as N_A, 
+sum(EU_Sales) as UE,
+sum(JP_Sales) as JP, 
+sum(Other_Sales) as Rimanenti,
+sum(Global_Sales) as Totali
+from vgsales group by Year order by Year")
+
+# le riordino in funzione dell'area così da vederle meglio
+plot_ly(y=glob_piatt$Totali,x=glob_piatt$Year, type='scatter', name='Totali',fill='tozeroy')%>%
+  add_trace(y=glob_piatt$N_A,x=glob_piatt$Year,name='N_A',fill='tozeroy')%>%
+  add_trace(y=glob_piatt$UE,x=glob_piatt$Year,fill='tozeroy',mode = 'none',name='UE')%>%
+  add_trace(y=glob_piatt$JP,x=glob_piatt$Year,name='JP',fill='tozeroy')%>%
+  add_trace(y=glob_piatt$Rimanenti,x=glob_piatt$Year,name='Rimanenti',fill='tozeroy')%>%
+  layout(title = "Vendite per zona geografica ")
+```
+
+Senza ombra di dubbio in America nel 2008.
+
+
+5 Qual'è il gioco più apprezzato dal mercato mondiale in ciascun anno?
+====================================================================================================================
+
+Troviamo la risposta nel grafico seguente, a cui abbiamo rimosso, per mero fine estetico, la legenda:
+
+```{r}
+# individuo gioco più venduto in ciascun anno
+miglior_gioco <-vgsales %>%  
+  group_by(Year) %>% 
+  filter(Global_Sales== max(Global_Sales)) %>%
+  ggplot(aes(Year, Global_Sales, fill=Name))+ geom_point(shape = 19, size = 4, stroke = 0.2) +
+  labs( x = "Anno", y = "Vendite (mln €)", title="Gioco di maggior successo per anno")+
+  theme(axis.text.x = element_text(angle = 90)) +theme(legend.position="none")
+
+ggplotly(miglior_gioco, width = 800, height = 600)
+
+```
+
+Qui i colori non denotato l'appartenenza ad un genere o una società. Anche in questo caso la risposta appare evidente. Osserviamo che il record lo detiene il gioco $\textit{Wii}$ nel 2006. 
+
+5.1 Osservazione
+----------------------------------------------------------------------------------------------------------------
+
+Facciamo ora un'osservazione: 
+potremmo aspettarci che a parità di anno il gioco più venduto dovrebbe 'girare' su un tipo di piattaforma che si colloca al primo posto, in quanto a ricavi, rispetto alle concorrenti. In effetti ciò accade sovente in questi decenni, ma non sempre. Vediamo quando ciò non avviene.
+
+Per raggiungere lo scopo costruiremo  dei sottografici di [plot.ly](https://plot.ly/r/subplots/), (riutilizziamo un grafico appena creato) e ricalcheremo il codice dell'ultimo grafico modificando unicamente il parametro $\textit{fill}$ ponendolo uguale a '$platform$' così da colorare $\textbf{tutte}$ le palline sulla base della loro piattaforma. Lo scopo di tutto ciò è permettere un agevole confronto avendo ora un criterio di confronto coerente fra i 2 plot:
+
+```{r}
+# sovrapposizione grafici
+miglior_gioco_new <-vgsales %>%  
+  group_by(Year) %>% 
+  filter(Global_Sales== max(Global_Sales)) %>%
+  ggplot(aes(Year, Global_Sales, fill=Platform))+ geom_point(shape = 19, size = 4, stroke = 0.2) +
+  labs( x = "anno", y = "Vendite giochi (mln €)", title="Piattaforma e Gioco a confronto")+
+  theme(axis.text.x = element_text(angle = 90)) +theme(legend.position="none")
+ggploty2<-ggplotly(miglior_gioco_new, width = 800, height = 600)
+
+# ora utilizzo il package "ggplotify"
+miglior_piattaforma1 <-vgsales %>%  
+  group_by(Year, Platform) %>%
+  summarise(totale=sum(Global_Sales))%>%
+  top_n(n=1)%>%
+  ggplot(aes(Year, totale, fill=Platform ))+
+  geom_point(shape = 19, size = 4, stroke = 0.2) +
+  labs( x = "Anno", y = "Vendite per piattaforma (mln €)")+
+  theme(axis.text.x = element_text(angle = 90))
+ggploty1<-ggplotly(miglior_piattaforma1, width = 800, height = 600)
+
+p1<-subplot(ggploty1,titleY = TRUE)
+p2<-subplot(ggploty2,titleY = TRUE)
+subplot(hide_legend(p1), hide_legend(p2),   nrows = 2, shareX = TRUE, shareY=TRUE, which_layout = "merge") 
+```
+
+Il grafico lo leggiamo in verticale: scelto un anno qualsiasi, se le 2 palline riferite a quell'anno presentano colori diversi, allora la piattaforma che ha performato  meglio in termini di vendite non è la stessa che ha venduto il gioco più 'gettonato' in quello stesso anno. 
+
+- Ad esempio: $\textit{Super Mario Bros.}$ è stato il gioco più venduto nel 1985 (40.24 mln di €) e 'girava' sulla piattaforma $\textit{NES}$ (Nintendo Entertainment System). Ebbene la $\textit{NES}$ risulta la Piattaforma più popolare nel 1985, con un ricavo complessivo di 53.44 mln di euro.  
+
+- Ma:  $\textit{Pokemon Red/Pokemon Blue}$ è stato il gioco più venduto nel 1996, ma  girava su  $\text{GB}$ (GameBoy) e non sulla $\text{PS}$ che risulta la più popolare in quell'anno con un ricavo complessivo di 94.68 mln di euro.
+Lo stesso avviene anche nel 1998, 1999, e in altri anni ancora.
+
+E' possibile verificare quanto affermato inserendo  1996 nel textbox e ordinare per Year e Ricavi ottenendo come gioco più venduto Pokeon.
+
+```{r}
+#ricavi max per gioco
+tabella <- vgsales %>% 
+         group_by(Platform, Name, Year) %>%
+         summarize(Ricavi = max(Global_Sales))
+datatable(tabella)
+```
+
+Infine inserendo 1996 nel textbox notiamo che il PS è la piattaforma più gettonata in quest’anno.
+
+```{r}
+#ricavi max per piattaforma
+tabella1 <- vgsales %>% 
+         group_by(Platform, Year) %>%
+         summarize(ricavi = sum(Global_Sales))
+datatable(tabella1)
+```
+
+
+6 C'è un'azienda che sta dominando il mercato?
+====================================================================================================================
+
+Selezioniamo le 10 (numero arbitrario ma ragionevole oltre che funzionale ad una comoda visualizzazione) aziende più forti del mercato e vediamo se c'è una più performante delle altre:
+
+```{r}
+#10 aziende  più fortiordinate per fatturato
+top10<- vgsales %>%
+  group_by(Publisher)%>%
+  summarize(sum=sum(Global_Sales)) %>%
+  top_n(n= 10) %>%
+  arrange(desc(sum))
+aziende_top10<-as.character(top10$Publisher) 
+datatable(top10)
+```
+
+Si, con un forte distacco dalle altre la Nintendo è la più forte azienda sul mercato.
+
+6.1 C'è un'azienda che ha dominato ogni anno le sue concorrenti?
+--------------------------------------------------------------------------------------------------------------------
+
+Scegliamo le migliori 10 per la richiesta che valga per ogni anno questo dominio, quindi complessivamente è ragionevole ritenere che le aziende in gioco avranno ricavi fra i più elevati. Vediamo dunque come evolve nel tempo l'andamento dei ricavi delle 10 migliori aziende. 
+
+```{r}
+# filtra fra le 10 aziende top
+# senza group = 1 non funziona
+ pippo<-vgsales %>%
+    filter(Publisher %in% aziende_top10) %>%
+    group_by(Publisher, Year) %>%
+    summarize(sum = sum(Global_Sales)) %>%
+  ggplot(aes(x=Year, y= sum, color= Publisher,group = 1))  + geom_line(size = 1.3)+ 
+  geom_point(alpha = 0.5, pch = 21)+ 
+  labs( x = "Anno", y = "Vendite (mln €)", title="L'azienda di maggior successo per anno")+
+  theme(axis.text.x = element_text(angle = 90))  
+
+ggplotly(pippo,width = 800, height = 600)
+```
+
+Con qualche eccezione negli anni dal $2001-2003$ e $2010-2011$ la Nintendo ha detiene questo primato.
+
+6.2 C'è un'azienda che ha quasi sempre dominato il mercato di un certo genere di videogiochi?
+--------------------------------------------------------------------------------------------------------------------
+Per rispondere, osserviamo come evolvono i ricavi delle 10 aziende più performanti (quelle di cui sopra), suddivisi per genere:
+
+```{r}
+#  ricavi nel tempo per azienda, suddivisi per genere
+vgsales%>%
+  filter(Publisher %in% aziende_top10) %>%
+  plot_ly(x=~Year,
+          y=~log(Global_Sales),
+          text = ~Publisher,
+          color = ~Publisher,
+          size=~Global_Sales,
+          frame = ~Genre,
+          type="scatter",
+          mode="markers") %>%
+  animation_opts(1000, easing = "elastic", redraw = FALSE)  %>%
+  animation_button(x = 1, xanchor = "right", y = 0, yanchor = "bottom") %>%
+  animation_slider(
+    currentvalue = list(prefix = "Anno ", font = list(color="red"))
+    ) %>%
+  layout(showlegend=FALSE)
+ ```
+Per realizzare il grafico abbiamo rimosso la  [legenda](https://plot.ly/r/legend/#changing-the-legend-orientation) così da vederlo più nel dettaglio, mentre la trasformazione logaritmica aiuta ad evidenziare meglio il fenomeno.La risposta anche in questo caso si chiarifica osservando il grafico. La Nintendo sembra prevalere sulle altre.
+
+
+7 Gli incassi in Giappone sono indipendenti da quelli del Nord-America?
+=========================================================================================================
+
+```{r}
+ris_colonne<- sapply(vgsales,is.numeric) 
+matrix_corr<-cor(vgsales[,ris_colonne]) 
+graph_corr<-corrplot(matrix_corr, method="ellipse",diag = FALSE,order = "hclust",mar=c(0,0,1,0), type = "lower",title = "Correlazioni fra variabili variabili numeriche del dataset")
+```
+
+No, sono correlati positivamente. Inoltre sono presenti forti correlazioni fra Vendite totali e Vendite in Nord america e in Europa: è intuitivo, visto che le 3 variabli sommate danno le vendite totali nel mondo. La correlazione maggiore riguarda le vendite in Europa e quelli totali.
+
+ Conclusioni
+==================================================================================================================
+
+Le domande che ci siamo posti vertevano su diversi tipi di questioni: di piattaforma, genere, incassi per zona geografica e nel tempo, società che realizzavano i più alti guadagni. Non sono state riscontrate particolari anomalie o incoerenze logiche nei risultati ottenuti.
+
+Natuaralmente 'analisi effettuata può svilupparsi ulteriormente appronfondendo diversi aspetti come ad esempio scoprire quali sono i fattori più importanti che determinano il volume delle vendite dei giochi (modelli di regressione), paragonare i fatturati delle aziende per zona geografica nel tempo, oppure prevedere le vendite in un mercato conoscendo le vendite in altri mercati e così via.
+
+Con speriamo con questo lavoro abbiamo incoriosito e stuzzicato il lettore un po' più esperto a proseguire questa indagine.
+
+>Non ho particolari talenti, sono soltanto appassionatamente curioso. - *Albert Einstein*
+
+Grazie per l'attezione
+
+[link repository su GitHub)](https://github.com/ottarub98/Tesina-DM4BD-Analisi-delle-vendite-di-videogiochi
+
+
